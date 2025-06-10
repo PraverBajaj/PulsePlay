@@ -7,12 +7,12 @@ import { Github, Twitter } from "lucide-react";
 export default function LandingPage() {
   return (
     <div>
-      <div className="relative flex flex-col h-[80rem] w-full items-center justify-center bg-black overflow-hidden">
+      <div className="relative flex flex-col h-[130rem] md:h-[80rem] w-full items-center justify-center bg-black overflow-hidden">
         <Appbar />
         {/* Grid lines at bottom layer */}
         <div
           className={cn(
-            "absolute inset-0 pointer-events-none z-0 opacity-15",
+            "absolute inset-0 pointer-events-none z-0 opacity-45",
             "[background-size:80px_80px]",
             "[background-image:linear-gradient(to_right,#262626_1px,transparent_1px),linear-gradient(to_bottom,#262626_1px,transparent_1px)]"
           )}
@@ -25,7 +25,7 @@ export default function LandingPage() {
         <div className="absolute inset-0 bg-black [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)] pointer-events-none z-20" />
 
         {/* Text above everything */}
-        <div className="relative z-30 text-center text-neutral-200 px-4">
+        <div className="relative z-30 text-center top-[3%] md:top-[0%] text-neutral-200 px-4">
           <div className="flex justify-center mb-6">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -67,20 +67,20 @@ export default function LandingPage() {
         </div>
 
         {/* Center card below text */}
-        <div className="relative z-40 mt-8 w-full flex justify-center px-4">
+        <div className="relative z-40 mt-8  w-full flex justify-center px-4">
           <CardHoverEffectDemo />
         </div>
       </div>
 
-      <div className="bg-black h-[30rem]">
-        <div className="mx-40 flex justify-center">
+      <div className="bg-black h-[20rem] md:h-[30rem]">
+        <div className="md:mx-40 pt-10 md:pt-0 flex flex-col md:flex-row justify-center gap-8 px-4 md:px-0">
           <WordsFlip />
+
           <EvervaultCardDemo />
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="bg-black text-white text-center py-6 border-t border-white/10">
+      <footer className="bg-black text-white text-center py-6 border-t border-white/10 px-4">
         <p className="text-sm mb-4">
           Made with <span className="text-red-500">❤️</span> by{" "}
           <span className="font-semibold">Praver</span>
@@ -114,7 +114,7 @@ export function WordsFlip() {
   const words = ["vote", "choose", "play", "enjoy"];
 
   return (
-    <div className="w-full max-w-2xl">
+    <div className="w-full pt-10 max-w-2xl">
       <div className="md:text-5xl text-3xl font-semibold text-left text-neutral-300 dark:text-neutral-400 leading-snug">
         With Pulse Play, you <br />
         <FlipWords words={words} /> the music. <br />
@@ -128,7 +128,7 @@ import { HoverEffect } from "../components/ui/card-hover-effect";
 
 export function CardHoverEffectDemo() {
   return (
-    <div className="max-w-5xl mx-auto px-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-8">
       <HoverEffect items={projects} />
     </div>
   );
@@ -170,21 +170,13 @@ import { EvervaultCard, Icon } from "../components/ui/evervault-card";
 
 export function EvervaultCardDemo() {
   return (
-    <div className="border border-black/[0.2] dark:border-white/[0.2] flex flex-col items-start max-w-sm mx-auto p-4 relative h-[30rem]">
+    <div className="border border-black/[0.2] dark:border-white/[0.2]  flex-col items-start max-w-sm mx-auto p-4 md:block hidden relative h-[30rem]">
       <Icon className="absolute h-6 w-6 -top-3 -left-3 dark:text-white text-black" />
       <Icon className="absolute h-6 w-6 -bottom-3 -left-3 dark:text-white text-black" />
       <Icon className="absolute h-6 w-6 -top-3 -right-3 dark:text-white text-black" />
       <Icon className="absolute h-6 w-6 -bottom-3 -right-3 dark:text-white text-black" />
 
-      <EvervaultCard text="hover" />
-
-      <h2 className="dark:text-white text-black mt-4 text-sm font-light">
-        Hover over this card to reveal an awesome effect. Running out of copy
-        here.
-      </h2>
-      <p className="text-sm border font-light dark:border-white/[0.2] border-black/[0.2] rounded-full mt-4 text-black dark:text-white px-2 py-0.5">
-        Watch me hover
-      </p>
+      <EvervaultCard text="PulsePlay" />
     </div>
   );
 }
