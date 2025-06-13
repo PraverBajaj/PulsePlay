@@ -1,60 +1,71 @@
+import { prismaClient } from "@/lib/db";
 import { getServerSession } from "next-auth";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prismaClient } from "@/app/lib/db";
 
-const upvoteSchema = z.object({
+// WebSocket broadcast helper
+function broadcastToCreator(creatorId: string, data: any) {
+  if ((global as any).broadcastToCreator) {
+    (global as any).broadcastToCreator(creatorId, data);
+  }
+}
+
+const DownvoteSchema = z.object({
   streamId: z.string(),
 });
 
 export async function POST(req: NextRequest) {
+  const session = await getServerSession();
+
+  const user = await prismaClient.user.findFirst({
+    where: {
+      email: session?.user?.email ?? "",
+    },
+  });
+
+  if (!user) {
+    return NextResponse.json({ message: "Unauthenticated" }, { status: 403 });
+  }
+
   try {
-    const session = await getServerSession();
-    if (!session || !session.user?.email) {
-      return new Response(JSON.stringify({ message: "Unauthorized" }), {
-        status: 401,
-      });
-    }
+    const data = DownvoteSchema.parse(await req.json());
 
-    const body = await req.json();
-    const parsed = upvoteSchema.safeParse(body);
-
-    if (!parsed.success) {
-      return new Response(JSON.stringify({ message: "Invalid request body" }), {
-        status: 400,
-      });
-    }
-
-    const { streamId } = parsed.data;
-
-    const user = await prismaClient.user.findUnique({
-      where: {
-        email: session.user.email,
-      },
-    });
-
-    if (!user) {
-      return new Response(JSON.stringify({ message: "User not found" }), {
-        status: 404,
-      });
-    }
-    
+    // Delete upvote (composite key required in Prisma schema)
     await prismaClient.upvote.delete({
       where: {
         userId_streamId: {
-          streamId,
           userId: user.id,
+          streamId: data.streamId,
         },
       },
     });
 
-    return new Response(JSON.stringify({ message: "Upvote recorded" }), {
-      status: 200,
+    // Get updated upvote count
+    const newUpvoteCount = await prismaClient.upvote.count({
+      where: { streamId: data.streamId },
     });
-  } catch (error) {
-    console.error("POST /upvote error:", error);
-    return new Response(JSON.stringify({ message: "Server error" }), {
-      status: 500,
+
+    // Get stream's creator
+    const stream = await prismaClient.stream.findUnique({
+      where: { id: data.streamId },
+      select: { userId: true },
     });
+
+    if (stream?.userId) {
+      broadcastToCreator(stream.userId, {
+        type: "VIDEO_DOWNVOTED",
+        videoId: data.streamId,
+        newUpvotes: newUpvoteCount,
+        userVoted: false,
+      });
+    }
+
+    return NextResponse.json({ message: "Downvote successful" });
+  } catch (e) {
+    console.error("Downvote error:", e);
+    return NextResponse.json(
+      { message: "Error while downvoting" },
+      { status: 500 }
+    );
   }
 }
