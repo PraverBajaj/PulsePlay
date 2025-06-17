@@ -12,7 +12,7 @@ const CreateStreamSchema = z.object({
   url: z.string()
 });
 
-const MAX_QUEUE_LEN = 20;
+const MAX_QUEUE_LEN = 2000;
 
 // Broadcast helper (assuming global is set somewhere else)
 function broadcastToCreator(creatorId: string, data: any) {
