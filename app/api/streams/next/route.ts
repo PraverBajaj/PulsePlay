@@ -1,7 +1,7 @@
 // app/api/streams/next/route.ts
 import { prismaClient } from "@/lib/db";
 import { getServerSession } from "next-auth";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 // Ensure broadcast function is accessible globally
 function broadcastToCreator(creatorId: string, data: any) {
