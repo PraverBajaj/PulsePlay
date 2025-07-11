@@ -12,8 +12,6 @@ const CreateStreamSchema = z.object({
   url: z.string()
 });
 
-const MAX_QUEUE_LEN = 2000;
-
 // Broadcast helper (assuming global is set somewhere else)
 function broadcastToCreator(creatorId: string, data: any) {
   if ((global as any).broadcastToCreator) {
@@ -40,10 +38,6 @@ export async function POST(req: NextRequest) {
     const existingStreams = await prismaClient.stream.count({
       where: { userId: data.creatorId }
     });
-
-    if (existingStreams >= MAX_QUEUE_LEN) {
-      return NextResponse.json({ message: "Already at limit" }, { status: 411 });
-    }
 
     const stream = await prismaClient.stream.create({
       data: {
