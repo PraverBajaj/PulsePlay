@@ -8,6 +8,7 @@ import {
   WordsFlip,
 } from "./components/landingpagecomp";
 import { Redirect } from "./components/redirect";
+import { signIn } from "next-auth/react";
 
 export default function LandingPage() {
   return (
@@ -55,10 +56,10 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button className="px-6 py-3 cursor-pointer bg-white text-black rounded-xl font-medium hover:bg-neutral-200 transition">
+            <button onClick={() => signIn()} className="px-6 py-3 cursor-pointer bg-white text-black rounded-xl font-medium hover:bg-neutral-200 transition">
               Get Started
             </button>
-            <button className="px-6 py-3 border cursor-pointer border-white/40 text-white rounded-xl font-medium hover:bg-white/10 transition">
+            <button onClick={() => signIn()} className="px-6 py-3 border cursor-pointer border-white/40 text-white rounded-xl font-medium hover:bg-white/10 transition">
               Learn More
             </button>
           </div>
