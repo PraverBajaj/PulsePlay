@@ -375,7 +375,7 @@ export default function StreamView({
       <Appbar />
 
       {/* WebSocket Connection Status */}
-      <div className="fixed top-4 right-4 z-50">
+      {/* <div className="fixed top-4 right-4 z-50">
         <div
           className={`px-3 py-1 rounded-full text-xs font-medium ${
             wsConnected
@@ -385,7 +385,7 @@ export default function StreamView({
         >
           {wsConnected ? "🟢 Live" : "🔴 Connecting..."}
         </div>
-      </div>
+      </div> */}
 
       <div className="flex mt-10 justify-center">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-5 w-screen max-w-screen-xl pt-8">
