@@ -5,6 +5,7 @@ import { prismaClient } from "@/lib/db";
 
 export const dynamic = 'force-dynamic';
 
+
 export default async function CreatorPage({
   params,
 }: {
@@ -25,10 +26,11 @@ export default async function CreatorPage({
   if (!user) {
     redirect(`/api/auth/signin?callbackUrl=${encodeURIComponent(`/creator/${params.creatorId}`)}`);
   }
+  
 
   return (
     <div>
-      <StreamView creatorId={(await params).creatorId} playVideo={false} />
+      <StreamView creatorId={(params).creatorId} playVideo={false} />
     </div>
   );
 }

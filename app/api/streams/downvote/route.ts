@@ -1,10 +1,17 @@
 import { prismaClient } from "@/lib/db";
 import { getServerSession } from "next-auth";
+// import { authOptions } from "@/lib/auth"; // Make sure to import your auth options
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-// WebSocket broadcast helper
-function broadcastToCreator(creatorId: string, data: any) {
+interface BroadcastPayload {
+  type: "VIDEO_DOWNVOTED";
+  videoId: string;
+  newUpvotes: number;
+  userVoted: boolean;
+}
+
+function broadcastToCreator(creatorId: string, data: BroadcastPayload) {
   if ((global as any).broadcastToCreator) {
     (global as any).broadcastToCreator(creatorId, data);
   }
@@ -14,13 +21,15 @@ const DownvoteSchema = z.object({
   streamId: z.string(),
 });
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   const session = await getServerSession();
 
+  if (!session?.user?.email) {
+    return NextResponse.json({ message: "Unauthenticated" }, { status: 403 });
+  }
+
   const user = await prismaClient.user.findFirst({
-    where: {
-      email: session?.user?.email ?? "",
-    },
+    where: { email: session.user.email },
   });
 
   if (!user) {
@@ -30,7 +39,7 @@ export async function POST(req: NextRequest) {
   try {
     const data = DownvoteSchema.parse(await req.json());
 
-    // Delete upvote (composite key required in Prisma schema)
+    // Delete upvote
     await prismaClient.upvote.delete({
       where: {
         userId_streamId: {
@@ -40,12 +49,10 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Get updated upvote count
     const newUpvoteCount = await prismaClient.upvote.count({
       where: { streamId: data.streamId },
     });
 
-    // Get stream's creator
     const stream = await prismaClient.stream.findUnique({
       where: { id: data.streamId },
       select: { userId: true },
