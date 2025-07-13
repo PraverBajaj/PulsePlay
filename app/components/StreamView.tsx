@@ -196,19 +196,28 @@ export default function StreamView({
   }, [creatorId]);
 
   // Initialize on mount
-  useEffect(() => {
-    initializeData();
-    connectWebSocket();
+useEffect(() => {
+  initializeData();
 
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close(1000, "Component unmounting");
-      }
-    };
-  }, [connectWebSocket]);
+  // Delay WebSocket connection by 3 seconds
+  const timeout = setTimeout(() => {
+    connectWebSocket();
+  }, 1000); // 3000ms = 3 seconds
+
+  return () => {
+    // Cleanup the delayed call if component unmounts early
+    clearTimeout(timeout);
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
+    if (wsRef.current) {
+      wsRef.current.close(1000, "Component unmounting");
+    }
+  };
+}, [connectWebSocket]);
+
 
   // YouTube player management
   useEffect(() => {
@@ -375,7 +384,7 @@ export default function StreamView({
       <Appbar />
 
       {/* WebSocket Connection Status */}
-      {/* <div className="fixed top-4 right-4 z-50">
+      <div className="fixed top-4 right-4 z-50">
         <div
           className={`px-3 py-1 rounded-full text-xs font-medium ${
             wsConnected
@@ -385,7 +394,7 @@ export default function StreamView({
         >
           {wsConnected ? "🟢 Live" : "🔴 Connecting..."}
         </div>
-      </div> */}
+      </div>
 
       <div className="flex mt-10 justify-center">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-5 w-screen max-w-screen-xl pt-8">

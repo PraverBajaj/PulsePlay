@@ -30,7 +30,7 @@ export default async function CreatorPage({
 
   return (
     <div>
-      <StreamView creatorId={(params).creatorId} playVideo={false} />
+      <StreamView creatorId={(await params).creatorId} playVideo={false} />
     </div>
   );
 }
