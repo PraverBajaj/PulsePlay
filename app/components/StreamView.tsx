@@ -40,21 +40,43 @@ export default function StreamView({
   const [loading, setLoading] = useState(false);
   const [playNextLoader, setPlayNextLoader] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
-  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const videoPlayerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize data without polling
+  const fetchUser = async () => {
+    try {
+      const { data } = await axios.get("/api/user", { withCredentials: true });
+      setCurrentUserId(data.user.id);
+      return data.user.id;
+    } catch (error) {
+      toast.error("Failed to fetch user session");
+      console.error("API /api/user error:", error);
+      return null;
+    }
+  };
+
   const initializeData = async () => {
     try {
+      const userId = await fetchUser();
       const { data } = await axios.get(`/api/streams/?creatorId=${creatorId}`, {
         withCredentials: true,
       });
+
+      // Set user-specific upvote status
+      const queueWithUserVotes = data.streams.map((video: Video) => ({
+        ...video,
+        haveUpvoted:
+          video.upvotes > 0 && userId
+            ? data.userVotes?.includes(video.id) || false
+            : false,
+      }));
+
       setQueue(
-        data.streams.sort((a: Video, b: Video) => b.upvotes - a.upvotes)
+        queueWithUserVotes.sort((a: Video, b: Video) => b.upvotes - a.upvotes)
       );
       setCurrentVideo(data.activeStream?.stream || null);
     } catch (error) {
@@ -62,48 +84,12 @@ export default function StreamView({
     }
   };
 
-  const refreshQueue = async () => {
-    setRefreshLoading(true);
-    try {
-      const { data } = await axios.get(`/api/streams/?creatorId=${creatorId}`, {
-        withCredentials: true,
-      });
-      setQueue(
-        data.streams.sort((a: Video, b: Video) => b.upvotes - a.upvotes)
-      );
-    } catch (error) {
-      console.error("Error refreshing queue:", error);
-      toast.error("Failed to refresh queue");
-    } finally {
-      setRefreshLoading(false);
-    }
-  };
-
-  const playNext = useCallback(async () => {
-    if (!queue.length) return;
-    setPlayNextLoader(true);
-    try {
-      const { data } = await axios.get("/api/streams/next");
-      setCurrentVideo(data.stream);
-      setQueue((prevQueue) =>
-        prevQueue.filter((x) => x.id !== data.stream?.id)
-      );
-    } catch (error) {
-      console.error("Error playing next video:", error);
-    } finally {
-      setPlayNextLoader(false);
-    }
-  }, [queue.length]);
-
   // WebSocket connection management
   const connectWebSocket = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     try {
-      // Replace with your actual WebSocket URL
-      const wsUrl = `ws://localhost:3001/stream/${creatorId}`;
-      // For production, use: `wss://yourdomain.com/stream/${creatorId}`
-
+      const wsUrl = `ws://localhost:3001/${creatorId}`;
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {
@@ -121,6 +107,15 @@ export default function StreamView({
           console.log("WebSocket message received:", data);
 
           switch (data.type) {
+            case "INITIAL_QUEUE":
+              setQueue(
+                data.queue.map((video: Video) => ({
+                  ...video,
+                  haveUpvoted: false, // Will be updated by user-specific API call
+                }))
+              );
+              break;
+
             case "VIDEO_ADDED":
               setQueue((prevQueue) => {
                 const newQueue = [...prevQueue, data.video].sort(
@@ -128,8 +123,7 @@ export default function StreamView({
                 );
                 return newQueue;
               });
-              if (data.userId !== "current-user-id") {
-                // Replace with actual user ID logic
+              if (data.userId !== currentUserId) {
                 toast.info(`New song added: ${data.video.title}`);
               }
               break;
@@ -143,7 +137,10 @@ export default function StreamView({
                       ? {
                           ...video,
                           upvotes: data.newUpvotes,
-                          haveUpvoted: data.userVoted,
+                          haveUpvoted:
+                            data.userId === currentUserId
+                              ? data.userVoted
+                              : video.haveUpvoted,
                         }
                       : video
                   )
@@ -153,15 +150,25 @@ export default function StreamView({
 
             case "VIDEO_PLAYING":
               setCurrentVideo(data.video);
-              setQueue((prevQueue) =>
-                prevQueue.filter((x) => x.id !== data.video?.id)
-              );
               break;
 
             case "QUEUE_UPDATED":
               setQueue(
-                data.queue.sort((a: Video, b: Video) => b.upvotes - a.upvotes)
+                data.queue
+                  .map((video: Video) => ({
+                    ...video,
+                    haveUpvoted: video.haveUpvoted, // Preserve current user's vote status
+                  }))
+                  .sort((a: Video, b: Video) => b.upvotes - a.upvotes)
               );
+              break;
+
+            case "CURRENT_VIDEO":
+              setCurrentVideo(data.video);
+              break;
+
+            case "ERROR":
+              toast.error(data.message);
               break;
 
             default:
@@ -176,7 +183,6 @@ export default function StreamView({
         console.log("WebSocket disconnected:", event.code, event.reason);
         setWsConnected(false);
 
-        // Reconnect after delay if not intentionally closed
         if (event.code !== 1000) {
           reconnectTimeoutRef.current = setTimeout(() => {
             console.log("Attempting to reconnect WebSocket...");
@@ -193,12 +199,17 @@ export default function StreamView({
       console.error("Error creating WebSocket connection:", error);
       setWsConnected(false);
     }
-  }, [creatorId]);
+  }, [creatorId, currentUserId]);
 
   // Initialize on mount
   useEffect(() => {
     initializeData();
-    connectWebSocket();
+  },[]);
+
+  useEffect(() => {
+    if (currentUserId) {
+      connectWebSocket();
+    }
 
     return () => {
       if (reconnectTimeoutRef.current) {
@@ -208,27 +219,25 @@ export default function StreamView({
         wsRef.current.close(1000, "Component unmounting");
       }
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, currentUserId]);
 
   // YouTube player management
   useEffect(() => {
     if (!videoPlayerRef.current || !currentVideo?.extractedId || !playVideo)
       return;
 
-    // Only recreate player if the video actually changed
     if (playerRef.current) {
       try {
         const currentUrl = playerRef.current.getVideoUrl?.();
         const currentVideoId = currentUrl?.split("v=")[1]?.split("&")[0];
         if (currentVideoId === currentVideo.extractedId) {
-          return; // Same video, don't recreate
+          return;
         }
       } catch (error) {
-        // Continue with recreation if we can't determine current video
+        // Continue with recreation
       }
     }
 
-    // Clean up previous player
     if (playerRef.current) {
       try {
         playerRef.current.destroy();
@@ -238,7 +247,6 @@ export default function StreamView({
       playerRef.current = null;
     }
 
-    // Create new player
     try {
       const player = YouTubePlayer(videoPlayerRef.current, {
         playerVars: {
@@ -253,16 +261,14 @@ export default function StreamView({
       playerRef.current = player;
 
       const onStateChange = (event: any) => {
-        console.log("Player state changed:", event.data);
         if (event.data === 0) {
-          // Video ended
+          // Video ended - play next
           console.log("Video ended, playing next...");
-          playNext();
+          handlePlayNext();
         }
       };
 
       player.on("ready", () => {
-        console.log("Player ready, loading video:", currentVideo.extractedId);
         player.loadVideoById(currentVideo.extractedId);
       });
 
@@ -282,21 +288,30 @@ export default function StreamView({
         playerRef.current = null;
       }
     };
-  }, [currentVideo?.extractedId, playVideo, playNext]);
+  }, [currentVideo?.extractedId, playVideo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputLink.trim()) return;
+    if (!inputLink.trim() || !wsRef.current) return;
 
     setLoading(true);
     try {
-      const { data } = await axios.post("/api/streams/", {
-        creatorId,
-        url: inputLink,
-      });
+      // Extract video info (you'll need to implement this)
+      const videoId = inputLink.split("?v=")[1]?.split("&")[0];
+      const videoInfo = await getVideoInfo(videoId); // Implement this function
 
-      // Don't update queue here - let WebSocket handle it
-      // This prevents duplicate updates and ensures consistency
+      wsRef.current.send(
+        JSON.stringify({
+          type: "ADD_VIDEO",
+          url: inputLink,
+          extractedId: videoId,
+          title: videoInfo.title,
+          smallImg: videoInfo.smallImg,
+          bigImg: videoInfo.bigImg,
+          userId: currentUserId,
+        })
+      );
+
       setInputLink("");
       toast.success("Video added to queue!");
     } catch (error) {
@@ -308,58 +323,23 @@ export default function StreamView({
   };
 
   const handleVote = async (id: string, isUpvote: boolean) => {
-    // Optimistic update
-    setQueue((prevQueue) =>
-      prevQueue
-        .map((video) =>
-          video.id === id
-            ? {
-                ...video,
-                upvotes: isUpvote ? video.upvotes + 1 : video.upvotes - 1,
-                haveUpvoted: !video.haveUpvoted,
-              }
-            : video
-        )
-        .sort((a, b) => b.upvotes - a.upvotes)
-    );
+    if (!wsRef.current || !currentUserId) return;
 
-    try {
-      await axios.post(`/api/streams/${isUpvote ? "upvote" : "downvote"}`, {
+    wsRef.current.send(
+      JSON.stringify({
+        type: isUpvote ? "UPVOTE" : "DOWNVOTE",
         streamId: id,
-      });
-      // WebSocket will handle the real update
-    } catch (error) {
-      console.error("Error voting:", error);
-      // Revert optimistic update on error
-      setQueue((prevQueue) =>
-        prevQueue
-          .map((video) =>
-            video.id === id
-              ? {
-                  ...video,
-                  upvotes: isUpvote ? video.upvotes - 1 : video.upvotes + 1,
-                  haveUpvoted: !video.haveUpvoted,
-                }
-              : video
-          )
-          .sort((a, b) => b.upvotes - a.upvotes)
-      );
-      toast.error("Failed to vote. Please try again.");
-    }
+        userId: currentUserId,
+      })
+    );
   };
 
-  const handleShare = () => {
-    const shareableLink = `${window.location.origin}/creator/${creatorId}`;
-    navigator.clipboard
-      .writeText(shareableLink)
-      .then(() => toast.success("Link copied to clipboard!"))
-      .catch((err) => {
-        console.error("Clipboard error:", err);
-        toast.error("Failed to copy link. Please try again.");
-      });
-  };
+  const handlePlayNext = () => {
+    if (!wsRef.current) return;
 
-  const handleManualPlayNext = () => {
+    setPlayNextLoader(true);
+
+    // Stop current video if playing
     if (playerRef.current) {
       try {
         playerRef.current.stopVideo();
@@ -367,7 +347,32 @@ export default function StreamView({
         console.error("Error stopping current video:", error);
       }
     }
-    playNext();
+
+    wsRef.current.send(
+      JSON.stringify({
+        type: "PLAY_NEXT",
+      })
+    );
+
+    setTimeout(() => setPlayNextLoader(false), 1000);
+  };
+
+  const handleShare = () => {
+    const shareableLink = `${window.location.origin}/creator/${creatorId}`;
+    navigator.clipboard
+      .writeText(shareableLink)
+      .then(() => toast.success("Link copied to clipboard!"))
+      .catch(() => toast.error("Failed to copy link"));
+  };
+
+
+  const getVideoInfo = async (videoId: string) => {
+
+    return {
+      title: "Video Title",
+      smallImg: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+      bigImg: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+    };
   };
 
   return (
@@ -391,40 +396,7 @@ export default function StreamView({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-5 w-screen max-w-screen-xl pt-8">
           <div className="col-span-3">
             <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-white flex items-center justify-between">
-                <span>Upcoming Songs</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={refreshQueue}
-                  disabled={refreshLoading}
-                  className="ml-4 bg-gray-800 text-white border-gray-700 hover:bg-gray-700 flex items-center space-x-2"
-                >
-                  {refreshLoading && (
-                    <svg
-                      className="animate-spin h-4 w-4 text-white mr-2"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                  )}
-                  <span>{refreshLoading ? "Refreshing..." : "Refresh"}</span>
-                </Button>
-              </h2>
+              <h2 className="text-2xl font-bold text-white">Upcoming Songs</h2>
 
               {queue.length === 0 && (
                 <Card className="bg-gray-900 border-gray-800 w-full">
@@ -435,6 +407,7 @@ export default function StreamView({
                   </CardContent>
                 </Card>
               )}
+
               {queue.map((video) => (
                 <Card key={video.id} className="bg-gray-900 border-gray-800">
                   <CardContent className="p-4 flex items-center space-x-4">
@@ -470,6 +443,7 @@ export default function StreamView({
               ))}
             </div>
           </div>
+
           <div className="col-span-2">
             <div className="max-w-4xl mx-auto p-4 space-y-6 w-full">
               <div className="flex justify-between items-center">
@@ -492,7 +466,7 @@ export default function StreamView({
                 />
                 <Button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !wsConnected}
                   className="w-full bg-purple-700 hover:bg-purple-800 text-white"
                 >
                   {loading ? "Loading..." : "Add to Queue"}
@@ -534,11 +508,11 @@ export default function StreamView({
                 </Card>
                 {playVideo && (
                   <Button
-                    onClick={handleManualPlayNext}
-                    disabled={playNextLoader}
+                    onClick={handlePlayNext}
+                    disabled={playNextLoader || !wsConnected}
                     className="w-full bg-purple-700 hover:bg-purple-800 text-white"
                   >
-                    <Play className="mr-2 h-4 w-4" />{" "}
+                    <Play className="mr-2 h-4 w-4" />
                     {playNextLoader ? "Loading..." : "Play next"}
                   </Button>
                 )}

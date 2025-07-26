@@ -1,7 +1,7 @@
 import { prismaClient } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-//@ts-ignore
+//@ts-expect-error
 import youtubesearchapi from "youtube-search-api";
 import { YT_REGEX } from "@/lib/utils";
 import { getServerSession } from "next-auth";
@@ -12,12 +12,7 @@ const CreateStreamSchema = z.object({
   url: z.string()
 });
 
-// Broadcast helper (assuming global is set somewhere else)
-function broadcastToCreator(creatorId: string, data: any) {
-  if ((global as any).broadcastToCreator) {
-    (global as any).broadcastToCreator(creatorId, data);
-  }
-}
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,9 +30,7 @@ export async function POST(req: NextRequest) {
       a.width < b.width ? -1 : 1
     );
 
-    const existingStreams = await prismaClient.stream.count({
-      where: { userId: data.creatorId }
-    });
+
 
     const stream = await prismaClient.stream.create({
       data: {
@@ -58,15 +51,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Broadcast to WebSocket clients
-    broadcastToCreator(data.creatorId, {
-      type: "VIDEO_ADDED",
-      video: {
-        ...stream,
-        upvotes: 0,
-        hasUpvoted: false
-      },
-      userId: stream.userId
-    });
+
 
     return NextResponse.json({
       ...stream,

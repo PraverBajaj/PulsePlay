@@ -1,14 +1,8 @@
 // app/api/streams/next/route.ts
 import { prismaClient } from "@/lib/db";
 import { getServerSession } from "next-auth";
-import { NextRequest, NextResponse } from "next/server";
+import {  NextResponse } from "next/server";
 
-// Ensure broadcast function is accessible globally
-function broadcastToCreator(creatorId: string, data: any) {
-  if ((global as any).broadcastToCreator) {
-    (global as any).broadcastToCreator(creatorId, data);
-  }
-}
 
 export async function GET() {
   const session = await getServerSession();
@@ -75,26 +69,7 @@ export async function GET() {
     }),
   ]);
 
-  const upvoteCount = mostUpvotedStream.upvotes.length;
 
-  // Broadcast to all connected clients
-  broadcastToCreator(user.id, {
-    type: "VIDEO_PLAYING",
-    video: {
-      id: mostUpvotedStream.id,
-      type: mostUpvotedStream.type,
-      url: mostUpvotedStream.url,
-      extractedId: mostUpvotedStream.extractedId,
-      title: mostUpvotedStream.title,
-      smallImg: mostUpvotedStream.smallImg,
-      bigImg: mostUpvotedStream.bigImg,
-      active: true,
-      userId: mostUpvotedStream.userId,
-      upvotes: upvoteCount,
-      haveUpvoted: false, // Optional: Set based on current user
-      creatorId: mostUpvotedStream.userId,
-    },
-  });
 
   return NextResponse.json({ stream: mostUpvotedStream });
 }

@@ -2,7 +2,7 @@ import { prismaClient } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 
-export const GET = async (req: NextRequest) => {
+export const GET = async () => {
     const session = await getServerSession();
     const user = await prismaClient.user.findFirst({
         where: {

@@ -3,12 +3,6 @@ import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-// Function to broadcast via WebSocket
-function broadcastToCreator(creatorId: string, data: any) {
-  if ((global as any).broadcastToCreator) {
-    (global as any).broadcastToCreator(creatorId, data);
-  }
-}
 
 const UpvoteSchema = z.object({
   streamId: z.string(),
@@ -64,14 +58,7 @@ export async function POST(req: NextRequest) {
       select: { userId: true },
     });
 
-    if (stream?.userId) {
-      broadcastToCreator(stream.userId, {
-        type: "VIDEO_UPVOTED",
-        videoId: data.streamId,
-        newUpvotes: updatedUpvoteCount,
-        userVoted: true,
-      });
-    }
+
 
     return NextResponse.json({ message: "Upvoted!" });
   } catch (e) {

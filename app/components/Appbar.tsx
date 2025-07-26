@@ -1,7 +1,6 @@
 "use client";
 import { Button } from "@/components/ui/button";
 import { signIn, signOut, useSession } from "next-auth/react";
-import Link from "next/link";
 import { Logo } from "@/components/ui/logo";
 
 export function Appbar() {

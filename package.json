@@ -2,13 +2,14 @@
   "name": "app",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "concurrently \"npm run ws-server\" \"next dev\"",
-    "ws-server": "node websocket-server.js",
-    "build": "next build",
-    "start": "concurrently \"npm run ws-server\" \"next start\"",
-    "lint": "next lint"
-  },
+  "type": "module",
+ "scripts": {
+  "dev": "concurrently \"npm run ws-server\" \"next dev -H 0.0.0.0 -p 3000\"",
+  "ws-server": "node websocket-server.js",
+  "build": "next build",
+  "start": "concurrently \"npm run ws-server\" \"next start -H 0.0.0.0 -p 3000\"",
+  "lint": "next lint"
+},
   "dependencies": {
     "@heroui/navbar": "^2.2.19",
     "@prisma/client": "5.13.0",
@@ -18,6 +19,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^9.1.2",
+    "dotenv": "^17.2.0",
     "lucide-react": "^0.513.0",
     "motion": "^12.16.0",
     "next": "15.3.3",
@@ -33,7 +35,6 @@
     "youtube-player": "^5.6.0",
     "youtube-search-api": "^1.2.2",
     "zod": "^3.25.56"
-
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

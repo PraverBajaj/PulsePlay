@@ -3,12 +3,7 @@ import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-// WebSocket broadcast helper
-function broadcastToCreator(creatorId: string, data: any) {
-  if ((global as any).broadcastToCreator) {
-    (global as any).broadcastToCreator(creatorId, data);
-  }
-}
+
 
 const DownvoteSchema = z.object({
   streamId: z.string(),
@@ -40,25 +35,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Get updated upvote count
-    const newUpvoteCount = await prismaClient.upvote.count({
-      where: { streamId: data.streamId },
-    });
 
-    // Get stream's creator
-    const stream = await prismaClient.stream.findUnique({
-      where: { id: data.streamId },
-      select: { userId: true },
-    });
-
-    if (stream?.userId) {
-      broadcastToCreator(stream.userId, {
-        type: "VIDEO_DOWNVOTED",
-        videoId: data.streamId,
-        newUpvotes: newUpvoteCount,
-        userVoted: false,
-      });
-    }
 
     return NextResponse.json({ message: "Downvote successful" });
   } catch (e) {
