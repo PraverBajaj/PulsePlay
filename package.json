@@ -7,7 +7,7 @@
   "dev": "concurrently \"npm run ws-server\" \"next dev -H 0.0.0.0 -p 3000\"",
   "ws-server": "node websocket-server.js",
   "build": "next build",
-  "start": "concurrently \"npm run ws-server\" \"next start -H 0.0.0.0 -p 3000\"",
+  "start": "concurrently \"node websocket-server.js\" \"next start\"",
   "lint": "next lint"
 },
   "dependencies": {

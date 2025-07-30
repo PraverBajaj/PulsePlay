@@ -86,7 +86,8 @@ export async function GET(req: NextRequest) {
     prismaClient.stream.findMany({
       where: {
         userId: creatorId,
-        played: false
+        played: false,
+        active: false, // <--- ADD THIS LINE
       },
       include: {
         _count: {
@@ -106,7 +107,14 @@ export async function GET(req: NextRequest) {
         userId: creatorId
       },
       include: {
-        stream: true
+        stream: {
+          include: {
+            upvotes: true,
+            _count: {
+              select: { upvotes: true }
+            }
+          }
+        }
       }
     })
   ]);
@@ -117,6 +125,12 @@ export async function GET(req: NextRequest) {
       upvotes: _count.upvotes,
       haveUpvoted: upvotes.length > 0
     })),
-    activeStream
+    activeStream: activeStream && activeStream.stream ? {
+      ...activeStream.stream,
+      upvotes: activeStream.stream._count?.upvotes ?? 0,
+      haveUpvoted: (activeStream.stream.upvotes || []).some(
+        (u) => u.userId === user.id
+      ),
+    } : null
   });
 }

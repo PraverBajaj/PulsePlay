@@ -25,6 +25,7 @@ interface Video {
   userId: string;
   upvotes: number;
   haveUpvoted: boolean;
+  upvoters?: string[]; 
 }
 
 export default function StreamView({
@@ -41,11 +42,12 @@ export default function StreamView({
   const [playNextLoader, setPlayNextLoader] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-
   const videoPlayerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const initialQueueRef = useRef<Video[] | null>(null);
+  const initialCurrentVideoRef = useRef<Video | null>(null);
 
   const fetchUser = async () => {
     try {
@@ -56,31 +58,6 @@ export default function StreamView({
       toast.error("Failed to fetch user session");
       console.error("API /api/user error:", error);
       return null;
-    }
-  };
-
-  const initializeData = async () => {
-    try {
-      const userId = await fetchUser();
-      const { data } = await axios.get(`/api/streams/?creatorId=${creatorId}`, {
-        withCredentials: true,
-      });
-
-      // Set user-specific upvote status
-      const queueWithUserVotes = data.streams.map((video: Video) => ({
-        ...video,
-        haveUpvoted:
-          video.upvotes > 0 && userId
-            ? data.userVotes?.includes(video.id) || false
-            : false,
-      }));
-
-      setQueue(
-        queueWithUserVotes.sort((a: Video, b: Video) => b.upvotes - a.upvotes)
-      );
-      setCurrentVideo(data.activeStream?.stream || null);
-    } catch (error) {
-      console.error("Error fetching initial streams:", error);
     }
   };
 
@@ -101,6 +78,11 @@ export default function StreamView({
         }
       };
 
+      // --- Initial sync state ---
+      let initialQueue: Video[] | null = null;
+      let initialCurrentVideo: Video | null = null;
+      let initialSynced = false;
+
       wsRef.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -108,14 +90,36 @@ export default function StreamView({
 
           switch (data.type) {
             case "INITIAL_QUEUE":
-              setQueue(
-                data.queue.map((video: Video) => ({
-                  ...video,
-                  haveUpvoted: false, // Will be updated by user-specific API call
-                }))
-              );
+              initialQueue = data.queue;
               break;
+            case "CURRENT_VIDEO":
+              initialCurrentVideo = data.video;
+              break;
+          }
 
+          // When both are received, set state and mark as synced
+          if (
+            !initialSynced &&
+            initialQueue !== null &&
+            initialCurrentVideo !== null
+          ) {
+            setQueue(
+              initialQueue.filter((v: Video) => v.id !== initialCurrentVideo?.id)
+            );
+            setCurrentVideo(initialCurrentVideo);
+            initialSynced = true;
+          } else if (
+            !initialSynced &&
+            initialQueue !== null &&
+            initialCurrentVideo === null
+          ) {
+            setQueue(initialQueue);
+            setCurrentVideo(null);
+            initialSynced = true;
+          }
+
+          // Handle all other updates as before
+          switch (data.type) {
             case "VIDEO_ADDED":
               setQueue((prevQueue) => {
                 const newQueue = [...prevQueue, data.video].sort(
@@ -127,7 +131,6 @@ export default function StreamView({
                 toast.info(`New song added: ${data.video.title}`);
               }
               break;
-
             case "VIDEO_UPVOTED":
             case "VIDEO_DOWNVOTED":
               setQueue((prevQueue) =>
@@ -137,42 +140,34 @@ export default function StreamView({
                       ? {
                           ...video,
                           upvotes: data.newUpvotes,
-                          haveUpvoted:
-                            data.userId === currentUserId
-                              ? data.userVoted
-                              : video.haveUpvoted,
+                          haveUpvoted: data.userId === currentUserId ? data.userVoted : video.haveUpvoted,
                         }
                       : video
                   )
                   .sort((a, b) => b.upvotes - a.upvotes)
               );
               break;
-
-            case "VIDEO_PLAYING":
-              setCurrentVideo(data.video);
-              break;
-
             case "QUEUE_UPDATED":
               setQueue(
                 data.queue
                   .map((video: Video) => ({
                     ...video,
-                    haveUpvoted: video.haveUpvoted, // Preserve current user's vote status
+                    haveUpvoted: video.upvoters
+                    ? currentUserId !== null && video.upvoters.includes(currentUserId)
+                    : video.haveUpvoted,
                   }))
                   .sort((a: Video, b: Video) => b.upvotes - a.upvotes)
               );
               break;
-
             case "CURRENT_VIDEO":
               setCurrentVideo(data.video);
+              setQueue((prevQueue) => prevQueue.filter((v) => v.id !== data.video?.id));
               break;
-
             case "ERROR":
               toast.error(data.message);
               break;
-
             default:
-              console.log("Unknown WebSocket message type:", data.type);
+              break;
           }
         } catch (error) {
           console.error("Error parsing WebSocket message:", error);
@@ -203,14 +198,13 @@ export default function StreamView({
 
   // Initialize on mount
   useEffect(() => {
-    initializeData();
-  },[]);
+    fetchUser();
+  }, []);
 
   useEffect(() => {
     if (currentUserId) {
       connectWebSocket();
     }
-
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -223,20 +217,10 @@ export default function StreamView({
 
   // YouTube player management
   useEffect(() => {
-    if (!videoPlayerRef.current || !currentVideo?.extractedId || !playVideo)
-      return;
+    if (!playVideo || !currentVideo?.extractedId) return;
 
-    if (playerRef.current) {
-      try {
-        const currentUrl = playerRef.current.getVideoUrl?.();
-        const currentVideoId = currentUrl?.split("v=")[1]?.split("&")[0];
-        if (currentVideoId === currentVideo.extractedId) {
-          return;
-        }
-      } catch (error) {
-        // Continue with recreation
-      }
-    }
+    const container = videoPlayerRef.current;
+    if (!container) return;
 
     if (playerRef.current) {
       try {
@@ -248,7 +232,7 @@ export default function StreamView({
     }
 
     try {
-      const player = YouTubePlayer(videoPlayerRef.current, {
+      const player = YouTubePlayer(container, {
         playerVars: {
           autoplay: 1,
           controls: 1,
@@ -262,8 +246,6 @@ export default function StreamView({
 
       const onStateChange = (event: any) => {
         if (event.data === 0) {
-          // Video ended - play next
-          console.log("Video ended, playing next...");
           handlePlayNext();
         }
       };
@@ -365,9 +347,7 @@ export default function StreamView({
       .catch(() => toast.error("Failed to copy link"));
   };
 
-
   const getVideoInfo = async (videoId: string) => {
-
     return {
       title: "Video Title",
       smallImg: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
@@ -485,20 +465,22 @@ export default function StreamView({
                 <h2 className="text-2xl font-bold text-white">Now Playing</h2>
                 <Card className="bg-gray-900 border-gray-800">
                   <CardContent className="p-4">
-                    {currentVideo ? (
-                      playVideo ? (
-                        <div ref={videoPlayerRef} className="w-full" />
-                      ) : (
-                        <>
-                          <img
-                            src={currentVideo.bigImg}
-                            className="w-full h-72 object-cover rounded"
-                          />
-                          <p className="mt-2 text-center font-semibold text-white">
-                            {currentVideo.title}
-                          </p>
-                        </>
-                      )
+                    {currentVideo && playVideo ? (
+                      <div
+                        ref={videoPlayerRef}
+                        key={currentVideo.extractedId}
+                        className="w-full"
+                      />
+                    ) : currentVideo ? (
+                      <>
+                        <img
+                          src={currentVideo.bigImg}
+                          className="w-full h-72 object-cover rounded"
+                        />
+                        <p className="mt-2 text-center font-semibold text-white">
+                          {currentVideo.title}
+                        </p>
+                      </>
                     ) : (
                       <p className="text-center py-8 text-gray-400">
                         No video playing
