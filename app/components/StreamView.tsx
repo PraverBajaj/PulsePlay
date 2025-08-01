@@ -8,10 +8,9 @@ import { ChevronUp, ChevronDown, Play, Share2 } from "lucide-react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { Appbar } from "../components/Appbar";
-import LiteYouTubeEmbed from "react-lite-youtube-embed";
 import "react-lite-youtube-embed/dist/LiteYouTubeEmbed.css";
-import { YT_REGEX } from "@/lib/utils";
 import YouTubePlayer from "youtube-player";
+
 
 interface Video {
   id: string;
@@ -46,8 +45,7 @@ export default function StreamView({
   const playerRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const initialQueueRef = useRef<Video[] | null>(null);
-  const initialCurrentVideoRef = useRef<Video | null>(null);
+
 
   const fetchUser = async () => {
     try {
@@ -66,9 +64,11 @@ export default function StreamView({
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     try {
-      const wsUrl = `ws://localhost:3001/${creatorId}`;
+      const wsUrl = `wss://pulseplay.praverbajaj.tech/ws/${creatorId}`;
       wsRef.current = new WebSocket(wsUrl);
 
+      // --- Heartbeat (ping/pong) ---
+      let pingInterval: NodeJS.Timeout | null = null;
       wsRef.current.onopen = () => {
         console.log("WebSocket connected");
         setWsConnected(true);
@@ -76,6 +76,12 @@ export default function StreamView({
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
         }
+        // Send ping every 30 seconds
+        pingInterval = setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: "PING" }));
+          }
+        }, 30000);
       };
 
       // --- Initial sync state ---
@@ -86,6 +92,7 @@ export default function StreamView({
       wsRef.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === "PONG") return; // Ignore pong
           console.log("WebSocket message received:", data);
 
           switch (data.type) {
@@ -147,6 +154,11 @@ export default function StreamView({
                   .sort((a, b) => b.upvotes - a.upvotes)
               );
               break;
+            case "VIDEO_PLAYING":
+            case "CURRENT_VIDEO":
+              setCurrentVideo(data.video);
+              setQueue((prevQueue) => prevQueue.filter((v) => v.id !== data.video?.id));
+              break;
             case "QUEUE_UPDATED":
               setQueue(
                 data.queue
@@ -158,10 +170,6 @@ export default function StreamView({
                   }))
                   .sort((a: Video, b: Video) => b.upvotes - a.upvotes)
               );
-              break;
-            case "CURRENT_VIDEO":
-              setCurrentVideo(data.video);
-              setQueue((prevQueue) => prevQueue.filter((v) => v.id !== data.video?.id));
               break;
             case "ERROR":
               toast.error(data.message);
@@ -177,7 +185,7 @@ export default function StreamView({
       wsRef.current.onclose = (event) => {
         console.log("WebSocket disconnected:", event.code, event.reason);
         setWsConnected(false);
-
+        if (pingInterval) clearInterval(pingInterval);
         if (event.code !== 1000) {
           reconnectTimeoutRef.current = setTimeout(() => {
             console.log("Attempting to reconnect WebSocket...");
@@ -189,6 +197,7 @@ export default function StreamView({
       wsRef.current.onerror = (error) => {
         console.error("WebSocket error:", error);
         setWsConnected(false);
+        if (pingInterval) clearInterval(pingInterval);
       };
     } catch (error) {
       console.error("Error creating WebSocket connection:", error);
@@ -222,26 +231,26 @@ export default function StreamView({
     const container = videoPlayerRef.current;
     if (!container) return;
 
+    // Always destroy the player before loading a new one
     if (playerRef.current) {
       try {
         playerRef.current.destroy();
       } catch (error) {
-        console.error("Error destroying previous player:", error);
+        // Ignore removeChild errors
       }
       playerRef.current = null;
     }
 
+    let player: any = null;
     try {
-      const player = YouTubePlayer(container, {
+      player = YouTubePlayer(container, {
         playerVars: {
           autoplay: 1,
           controls: 1,
           rel: 0,
-          fs: 1,
           playsinline: 1,
         },
       });
-
       playerRef.current = player;
 
       const onStateChange = (event: any) => {
@@ -253,7 +262,6 @@ export default function StreamView({
       player.on("ready", () => {
         player.loadVideoById(currentVideo.extractedId);
       });
-
       player.on("stateChange", onStateChange);
       player.loadVideoById(currentVideo.extractedId);
     } catch (error) {
@@ -265,12 +273,29 @@ export default function StreamView({
         try {
           playerRef.current.destroy();
         } catch (error) {
-          console.error("Error destroying player on cleanup:", error);
+          // Ignore removeChild errors
         }
         playerRef.current = null;
       }
     };
   }, [currentVideo?.extractedId, playVideo]);
+
+  // Extract YouTube video ID from any valid YouTube URL format
+  function extractYouTubeId(url: string): string | null {
+    // Try to match all common YouTube URL formats
+    const regex = /(?:v=|\/v\/|embed\/|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    const match = url.match(regex);
+    if (match && match[1]) return match[1];
+
+    // Fallback: try to get v= param if present
+    try {
+      const u = new URL(url);
+      if (u.searchParams.get('v')) {
+        return u.searchParams.get('v');
+      }
+    } catch {}
+    return null;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -278,9 +303,14 @@ export default function StreamView({
 
     setLoading(true);
     try {
-      // Extract video info (you'll need to implement this)
-      const videoId = inputLink.split("?v=")[1]?.split("&")[0];
-      const videoInfo = await getVideoInfo(videoId); // Implement this function
+      // Use robust YouTube ID extraction
+      const videoId = extractYouTubeId(inputLink);
+      if (!videoId) {
+        toast.error("Invalid YouTube link");
+        setLoading(false);
+        return;
+      }
+      const videoInfo = await getVideoInfo(videoId);
 
       wsRef.current.send(
         JSON.stringify({
@@ -453,10 +483,14 @@ export default function StreamView({
                 </Button>
               </form>
 
-              {inputLink && inputLink.match(YT_REGEX) && !loading && (
+              {inputLink && extractYouTubeId(inputLink) && !loading && (
                 <Card className="bg-gray-900 border-gray-800">
                   <CardContent className="p-4">
-                    <LiteYouTubeEmbed title="" id={inputLink.split("?v=")[1]} />
+                    <img
+                      src={`https://img.youtube.com/vi/${extractYouTubeId(inputLink)}/mqdefault.jpg`}
+                      alt="YouTube preview"
+                      className="w-full h-48 object-cover rounded"
+                    />
                   </CardContent>
                 </Card>
               )}
@@ -465,12 +499,11 @@ export default function StreamView({
                 <h2 className="text-2xl font-bold text-white">Now Playing</h2>
                 <Card className="bg-gray-900 border-gray-800">
                   <CardContent className="p-4">
+                    {/* Always use a stable wrapper div for the player to avoid React/DOM removal errors */}
                     {currentVideo && playVideo ? (
-                      <div
-                        ref={videoPlayerRef}
-                        key={currentVideo.extractedId}
-                        className="w-full"
-                      />
+                      <div className="youtube-player-wrapper">
+                        <div ref={videoPlayerRef} className="w-full" />
+                      </div>
                     ) : currentVideo ? (
                       <>
                         <img
@@ -491,7 +524,7 @@ export default function StreamView({
                 {playVideo && (
                   <Button
                     onClick={handlePlayNext}
-                    disabled={playNextLoader || !wsConnected}
+                    disabled={playNextLoader || !wsConnected || queue.length === 0}
                     className="w-full bg-purple-700 hover:bg-purple-800 text-white"
                   >
                     <Play className="mr-2 h-4 w-4" />

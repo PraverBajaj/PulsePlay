@@ -131,6 +131,12 @@ wss.on("connection", (ws, request) => {
   ws.on("message", async (data) => {
     try {
       const message = JSON.parse(data.toString());
+      // Heartbeat: respond to ping
+      if (message.type === "PING") {
+        ws.send(JSON.stringify({ type: "PONG" }));
+        return;
+      }
+
       console.log("Received message:", message);
 
       switch (message.type) {
